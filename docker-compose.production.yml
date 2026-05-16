@@ -1,0 +1,79 @@
+services:
+  intellidoc-ai:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      DATA_ROOT: /app/data
+      DATABASE_URL: postgres://intellidoc:intellidoc@postgres:5432/intellidoc
+      OBJECT_STORAGE: minio
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: intellidoc
+      MINIO_SECRET_KEY: intellidoc-secret
+      MINIO_BUCKET: documents
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      OPENSEARCH_URL: http://opensearch:9200
+      OPENSEARCH_INDEX: intellidoc-documents
+      JWT_SECRET: change-this-production-secret
+      MAX_UPLOAD_MB: 100
+      RETENTION_DAYS: 30
+    depends_on:
+      - postgres
+      - minio
+      - rabbitmq
+      - opensearch
+    volumes:
+      - intellidoc-data:/app/data
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: intellidoc
+      POSTGRES_USER: intellidoc
+      POSTGRES_PASSWORD: intellidoc
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./database/migrations:/docker-entrypoint-initdb.d:ro
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: intellidoc
+      MINIO_ROOT_PASSWORD: intellidoc-secret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+
+  opensearch:
+    image: opensearchproject/opensearch:2
+    environment:
+      discovery.type: single-node
+      plugins.security.disabled: "true"
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: "IntelliDoc-Prod-123!"
+      OPENSEARCH_JAVA_OPTS: "-Xms1g -Xmx1g"
+    ports:
+      - "9200:9200"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+
+volumes:
+  intellidoc-data:
+  postgres-data:
+  minio-data:
+  rabbitmq-data:
+  opensearch-data:

@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: intellidoc-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: intellidoc-worker
+  template:
+    metadata:
+      labels:
+        app: intellidoc-worker
+    spec:
+      containers:
+        - name: worker
+          image: intellidoc/worker:latest
+          env:
+            - name: QUEUE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: intellidoc-secrets
+                  key: queue-url

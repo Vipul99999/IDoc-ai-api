@@ -1,0 +1,1393 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "IntelliDoc AI Document Intelligence API",
+    "version": "1.0.0",
+    "description": "APIs for authentication, upload, background analysis, OCR, translation, formatting, search, billing, monitoring, backups, security, and administration."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000",
+      "description": "Local web API"
+    },
+    {
+      "url": "http://localhost:4000",
+      "description": "API gateway boundary"
+    }
+  ],
+  "security": [
+    {
+      "apiKeyAuth": []
+    },
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/v1/auth/login": {
+      "post": {
+        "summary": "Create a JWT session",
+        "tags": ["Authentication"],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Access token and user profile"
+          }
+        }
+      }
+    },
+    "/v1/api-keys": {
+      "get": {
+        "summary": "List API keys for the tenant",
+        "tags": ["API Keys"],
+        "responses": {
+          "200": {
+            "description": "API keys without secret material"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create an API key",
+        "tags": ["API Keys"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "scopes": { "type": "array", "items": { "type": "string" } }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "New API key. The secret is returned once."
+          }
+        }
+      },
+      "delete": {
+        "summary": "Revoke an API key",
+        "tags": ["API Keys"],
+        "parameters": [
+          { "name": "id", "in": "query", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": { "description": "Revoked" }
+        }
+      }
+    },
+    "/v1/documents": {
+      "get": {
+        "summary": "List tenant documents",
+        "tags": ["Documents"],
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20, "maximum": 100 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated document list with standard response envelope"
+          }
+        }
+      },
+      "post": {
+        "summary": "Upload and queue a document",
+        "tags": ["Documents"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": ["file"],
+                "properties": {
+                  "file": { "type": "string", "format": "binary" },
+                  "budget": { "type": "string", "enum": ["economy", "standard", "premium"] },
+                  "urgency": { "type": "string", "enum": ["normal", "express"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Document accepted and queued"
+          },
+          "415": {
+            "description": "Unsupported document type"
+          }
+        }
+      }
+    },
+    "/v1/jobs/analyze": {
+      "post": {
+        "summary": "Create a quality analysis and classification job",
+        "tags": ["Jobs"],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/DocumentJobRequest"
+        },
+        "responses": {
+          "202": { "description": "Job accepted" }
+        }
+      }
+    },
+    "/v1/jobs/ocr": {
+      "post": {
+        "summary": "Create an OCR job",
+        "tags": ["Jobs"],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/DocumentJobRequest"
+        },
+        "responses": {
+          "202": { "description": "OCR job accepted" }
+        }
+      }
+    },
+    "/v1/jobs/translate": {
+      "post": {
+        "summary": "Create a translation job",
+        "tags": ["Jobs"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["document_id", "target_language"],
+                "properties": {
+                  "document_id": { "type": "string", "format": "uuid" },
+                  "target_language": { "type": "string", "example": "hi" },
+                  "source_language": { "type": "string", "example": "en" },
+                  "preserve_layout": { "type": "boolean", "default": true },
+                  "glossary": { "type": "object", "additionalProperties": { "type": "string" } }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": { "description": "Translation job accepted" }
+        }
+      }
+    },
+    "/v1/jobs/reformat": {
+      "post": {
+        "summary": "Create a layout cleanup job",
+        "tags": ["Jobs"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["document_id"],
+                "properties": {
+                  "document_id": { "type": "string", "format": "uuid" },
+                  "format": { "type": "string", "enum": ["pdf", "docx", "pptx"], "default": "pdf" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": { "description": "Reformat job accepted" }
+        }
+      }
+    },
+    "/v1/jobs/{id}": {
+      "get": {
+        "summary": "Get job status",
+        "tags": ["Jobs"],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Job status" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/v1/results/{id}": {
+      "get": {
+        "summary": "Get document intelligence results",
+        "tags": ["Results"],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Analysis, OCR, extraction, translation, formatting, and generated outputs" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/v1/search": {
+      "get": {
+        "summary": "Full-text and semantic search",
+        "tags": ["Search"],
+        "parameters": [
+          { "name": "q", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Ranked search hits" }
+        }
+      }
+    },
+    "/v1/usage": {
+      "get": {
+        "summary": "Get metered usage records and totals",
+        "tags": ["Usage"],
+        "parameters": [
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 100, "maximum": 500 } }
+        ],
+        "responses": {
+          "200": { "description": "Usage records and meter totals" }
+        }
+      }
+    },
+    "/v1/billing/invoices": {
+      "get": {
+        "summary": "List invoices",
+        "tags": ["Billing"],
+        "responses": {
+          "200": { "description": "Invoice list" }
+        }
+      }
+    },
+    "/v1/billing/subscription": {
+      "get": {
+        "summary": "Get subscription and available plans",
+        "tags": ["Billing"],
+        "responses": {
+          "200": { "description": "Subscription, plan, and period usage data" }
+        }
+      }
+    },
+    "/v1/webhooks": {
+      "post": {
+        "summary": "Create a webhook endpoint",
+        "tags": ["Webhooks"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["url"],
+                "properties": {
+                  "url": { "type": "string", "format": "uri" },
+                  "events": {
+                    "type": "array",
+                    "items": { "type": "string", "enum": ["job.completed", "job.failed", "quota.threshold_reached", "invoice.generated"] }
+                  },
+                  "description": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Webhook endpoint and signing secret" }
+        }
+      }
+    },
+    "/api/documents": {
+      "get": {
+        "summary": "List documents",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Document list"
+          }
+        }
+      }
+    },
+    "/api/documents/upload": {
+      "post": {
+        "summary": "Upload and queue a document for background analysis",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "budget": {
+                    "type": "string",
+                    "enum": [
+                      "economy",
+                      "standard",
+                      "premium"
+                    ]
+                  },
+                  "urgency": {
+                    "type": "string",
+                    "enum": [
+                      "normal",
+                      "express"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Uploaded document queued for background processing"
+          }
+        }
+      }
+    },
+    "/api/documents/batch-upload": {
+      "post": {
+        "summary": "Upload and queue multiple documents for background analysis",
+        "responses": {
+          "202": {
+            "description": "Batch upload result with accepted queued files and rejected files"
+          }
+        }
+      }
+    },
+    "/api/documents/{id}": {
+      "get": {
+        "summary": "Get document",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Document detail"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete document",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted"
+          }
+        }
+      }
+    },
+    "/api/documents/{id}/analyze": {
+      "post": {
+        "summary": "Re-run full document intelligence analysis",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated analysis result"
+          }
+        }
+      }
+    },
+    "/api/documents/{id}/quality": {
+      "get": {
+        "summary": "Get quality analysis",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Quality score, pages, and issues"
+          }
+        }
+      }
+    },
+    "/api/documents/{id}/recommendations": {
+      "get": {
+        "summary": "Get print, binding, workflow, and compliance recommendations",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Recommendations"
+          }
+        }
+      }
+    },
+    "/api/documents/{id}/ocr": {
+      "post": {
+        "summary": "Run OCR",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OCR text and coordinate blocks"
+          }
+        }
+      }
+    },
+    "/api/documents/{id}/text": {
+      "get": {
+        "summary": "Get extracted text",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Extracted text"
+          }
+        }
+      }
+    },
+    "/api/documents/{id}/translate": {
+      "post": {
+        "summary": "Translate a document",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "targetLanguage": {
+                    "type": "string",
+                    "example": "hi"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Translation output"
+          }
+        }
+      }
+    },
+    "/api/documents/{id}/reformat": {
+      "post": {
+        "summary": "Generate layout cleanup output",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "format": {
+                    "type": "string",
+                    "enum": [
+                      "pdf",
+                      "docx",
+                      "pptx"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Formatting output"
+          }
+        }
+      }
+    },
+    "/api/search": {
+      "get": {
+        "summary": "Full-text and semantic search",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search hits"
+          }
+        }
+      }
+    },
+    "/api/search/advanced": {
+      "get": {
+        "summary": "Advanced BM25, semantic, filtered search",
+        "responses": {
+          "200": {
+            "description": "Ranked hits with facets"
+          }
+        }
+      },
+      "post": {
+        "summary": "Advanced search with structured filters",
+        "responses": {
+          "200": {
+            "description": "Ranked hits with facets and rank signals"
+          }
+        }
+      }
+    },
+    "/api/search/facets": {
+      "get": {
+        "summary": "Get search facets",
+        "responses": {
+          "200": {
+            "description": "Facet counts"
+          }
+        }
+      }
+    },
+    "/api/search/suggest": {
+      "get": {
+        "summary": "Get search query suggestions",
+        "responses": {
+          "200": {
+            "description": "Suggestions"
+          }
+        }
+      }
+    },
+    "/api/search/similar": {
+      "get": {
+        "summary": "Find similar documents",
+        "responses": {
+          "200": {
+            "description": "Similar documents"
+          }
+        }
+      }
+    },
+    "/api/enterprise/usage": {
+      "get": {
+        "summary": "Billing and credit usage",
+        "responses": {
+          "200": {
+            "description": "Usage meters"
+          }
+        }
+      }
+    },
+    "/api/admin/stats": {
+      "get": {
+        "summary": "Admin platform stats",
+        "responses": {
+          "200": {
+            "description": "Admin stats"
+          }
+        }
+      }
+    },
+    "/api/brand": {
+      "get": {
+        "summary": "Get white-label brand settings",
+        "responses": {
+          "200": {
+            "description": "Brand settings"
+          }
+        }
+      },
+      "patch": {
+        "summary": "Update white-label brand settings",
+        "responses": {
+          "200": {
+            "description": "Updated brand settings"
+          }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "summary": "Create a JWT session from database-backed credentials",
+        "responses": {
+          "200": {
+            "description": "Access token and user profile"
+          }
+        }
+      }
+    },
+    "/api/auth/google/start": {
+      "get": {
+        "summary": "Start Google OAuth2 login with PKCE",
+        "security": [],
+        "responses": {
+          "302": {
+            "description": "Redirect to Google authorization"
+          },
+          "503": {
+            "description": "Google OAuth is not configured"
+          }
+        }
+      }
+    },
+    "/api/auth/google/callback": {
+      "get": {
+        "summary": "Complete Google OAuth2 login and issue a JWT session",
+        "security": [],
+        "responses": {
+          "302": {
+            "description": "Redirect to the dashboard with session state"
+          }
+        }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "summary": "Get current user and permissions",
+        "responses": {
+          "200": {
+            "description": "Authenticated user"
+          }
+        }
+      }
+    },
+    "/api/billing/plans": {
+      "get": {
+        "summary": "List SaaS and institutional plans",
+        "responses": {
+          "200": {
+            "description": "Plans"
+          }
+        }
+      }
+    },
+    "/api/billing/records": {
+      "get": {
+        "summary": "List metered billing records",
+        "responses": {
+          "200": {
+            "description": "Billing records"
+          }
+        }
+      }
+    },
+    "/api/jobs": {
+      "get": {
+        "summary": "List processing jobs",
+        "responses": {
+          "200": {
+            "description": "Jobs"
+          }
+        }
+      }
+    },
+    "/api/workflows": {
+      "get": {
+        "summary": "List workflow and approval states",
+        "responses": {
+          "200": {
+            "description": "Workflow queue"
+          }
+        }
+      }
+    },
+    "/api/webhooks/test": {
+      "post": {
+        "summary": "Send a test webhook event",
+        "responses": {
+          "200": {
+            "description": "Webhook delivery simulation"
+          }
+        }
+      }
+    },
+    "/api/documents/{id}/summarize": {
+      "post": {
+        "summary": "Generate a summary",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Generated summary"
+          }
+        }
+      }
+    },
+    "/api/documents/{id}/ask": {
+      "post": {
+        "summary": "Ask a question about a document",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Generated answer"
+          }
+        }
+      }
+    },
+    "/api/documents/{id}/flashcards": {
+      "post": {
+        "summary": "Generate flashcards",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Generated flashcards"
+          }
+        }
+      }
+    },
+    "/api/documents/{id}/study-guide": {
+      "post": {
+        "summary": "Generate a study guide",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Generated study guide"
+          }
+        }
+      }
+    },
+    "/api/documents/{id}/versions": {
+      "get": {
+        "summary": "List document versions",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Document versions"
+          }
+        }
+      }
+    },
+    "/api/documents/{id}/extract": {
+      "get": {
+        "summary": "Get structured extraction results",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Extraction result"
+          }
+        }
+      },
+      "post": {
+        "summary": "Run structured extraction",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Extraction result"
+          }
+        }
+      }
+    },
+    "/api/documents/{id}/validate": {
+      "get": {
+        "summary": "Get validation and readiness checks",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Validation result"
+          }
+        }
+      },
+      "post": {
+        "summary": "Run validation and readiness checks",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Validation result"
+          }
+        }
+      }
+    },
+    "/api/documents/{id}/signed-url": {
+      "post": {
+        "summary": "Create a short-lived signed URL",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Signed URL"
+          }
+        }
+      }
+    },
+    "/api/documents/{id}/compliance": {
+      "get": {
+        "summary": "Get PII and compliance findings",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Compliance risk report"
+          }
+        }
+      }
+    },
+    "/api/documents/{id}/redact": {
+      "post": {
+        "summary": "Generate a redacted copy",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Redacted output"
+          }
+        }
+      }
+    },
+    "/api/documents/{id}/duplicates": {
+      "get": {
+        "summary": "Find likely duplicate or near-duplicate documents",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Duplicate candidates"
+          }
+        }
+      }
+    },
+    "/api/documents/{id}/compare": {
+      "post": {
+        "summary": "Compare two documents",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Comparison result"
+          }
+        }
+      }
+    },
+    "/api/marketplace/print-options": {
+      "get": {
+        "summary": "Get print vendor marketplace options",
+        "responses": {
+          "200": {
+            "description": "Vendor options"
+          }
+        }
+      }
+    },
+    "/api/marketplace/quote": {
+      "post": {
+        "summary": "Create a print quote",
+        "responses": {
+          "200": {
+            "description": "Print quote"
+          }
+        }
+      }
+    },
+    "/api/marketplace/orders": {
+      "get": {
+        "summary": "List print orders",
+        "responses": {
+          "200": {
+            "description": "Print orders"
+          }
+        }
+      },
+      "post": {
+        "summary": "Place a print order",
+        "responses": {
+          "201": {
+            "description": "Print order"
+          }
+        }
+      }
+    },
+    "/api/exports": {
+      "get": {
+        "summary": "List generated exports",
+        "responses": {
+          "200": {
+            "description": "Export inventory"
+          }
+        }
+      }
+    },
+    "/api/review/tasks": {
+      "get": {
+        "summary": "List human review tasks",
+        "responses": {
+          "200": {
+            "description": "Review tasks"
+          }
+        }
+      }
+    },
+    "/api/api-keys": {
+      "get": {
+        "summary": "List API keys",
+        "responses": {
+          "200": {
+            "description": "API keys without secrets"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create API key",
+        "responses": {
+          "201": {
+            "description": "New API key secret"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Revoke API key",
+        "responses": {
+          "200": {
+            "description": "Revoked"
+          }
+        }
+      }
+    },
+    "/api/retention/policies": {
+      "get": {
+        "summary": "Get retention policy",
+        "responses": {
+          "200": {
+            "description": "Retention policy"
+          }
+        }
+      },
+      "patch": {
+        "summary": "Update retention policy",
+        "responses": {
+          "200": {
+            "description": "Retention policy"
+          }
+        }
+      }
+    },
+    "/api/retention/run": {
+      "post": {
+        "summary": "Run retention dry run",
+        "responses": {
+          "200": {
+            "description": "Retention candidates"
+          }
+        }
+      }
+    },
+    "/api/admin/analytics": {
+      "get": {
+        "summary": "Get product and operational analytics",
+        "responses": {
+          "200": {
+            "description": "Analytics"
+          }
+        }
+      }
+    },
+    "/api/cost/estimate": {
+      "get": {
+        "summary": "Estimate document or portfolio costs",
+        "responses": {
+          "200": {
+            "description": "Cost estimate"
+          }
+        }
+      }
+    },
+    "/api/cost/optimize": {
+      "get": {
+        "summary": "Get cost optimization recommendations",
+        "responses": {
+          "200": {
+            "description": "Cost optimization plan"
+          }
+        }
+      }
+    },
+    "/api/documents/{id}/accuracy": {
+      "get": {
+        "summary": "Get document accuracy and reliability signals",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OCR, classification, extraction, readiness, and reliability signals"
+          }
+        }
+      }
+    },
+    "/api/monitoring/health": {
+      "get": {
+        "summary": "Health check",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Service and dependency health"
+          }
+        }
+      }
+    },
+    "/api/monitoring/metrics": {
+      "get": {
+        "summary": "Prometheus or JSON metrics",
+        "responses": {
+          "200": {
+            "description": "Operational metrics"
+          }
+        }
+      }
+    },
+    "/api/backups/run": {
+      "post": {
+        "summary": "Run application backup manifest generation",
+        "responses": {
+          "200": {
+            "description": "Backup manifest result"
+          }
+        }
+      }
+    },
+    "/api/payments/checkout": {
+      "post": {
+        "summary": "Create payment checkout session",
+        "responses": {
+          "200": {
+            "description": "Checkout session"
+          }
+        }
+      }
+    },
+    "/api/payments/webhook": {
+      "post": {
+        "summary": "Receive verified payment webhook",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Webhook accepted"
+          },
+          "401": {
+            "description": "Invalid signature"
+          }
+        }
+      }
+    },
+    "/api/security/audit": {
+      "get": {
+        "summary": "Run security readiness audit",
+        "responses": {
+          "200": {
+            "description": "Security score and findings"
+          }
+        }
+      }
+    },
+    "/api/benchmarks/ocr": {
+      "get": {
+        "summary": "Run OCR benchmark summary",
+        "responses": {
+          "200": {
+            "description": "OCR benchmark metrics"
+          }
+        }
+      },
+      "post": {
+        "summary": "Run OCR benchmark with ground truth",
+        "responses": {
+          "200": {
+            "description": "OCR benchmark metrics"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "requestBodies": {
+      "DocumentJobRequest": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["document_id"],
+              "properties": {
+                "document_id": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "NotFound": {
+        "description": "Resource not found",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Envelope": {
+        "type": "object",
+        "required": ["request_id", "tenant_id", "timestamp", "data"],
+        "properties": {
+          "request_id": { "type": "string" },
+          "tenant_id": { "type": "string" },
+          "timestamp": { "type": "string", "format": "date-time" },
+          "data": {}
+        }
+      },
+      "ErrorEnvelope": {
+        "type": "object",
+        "required": ["request_id", "tenant_id", "timestamp", "error"],
+        "properties": {
+          "request_id": { "type": "string" },
+          "tenant_id": { "type": ["string", "null"] },
+          "timestamp": { "type": "string", "format": "date-time" },
+          "error": {
+            "type": "object",
+            "required": ["code", "message", "details", "documentation_url"],
+            "properties": {
+              "code": { "type": "string" },
+              "message": { "type": "string" },
+              "details": {},
+              "documentation_url": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "apiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-api-key"
+      },
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  }
+}

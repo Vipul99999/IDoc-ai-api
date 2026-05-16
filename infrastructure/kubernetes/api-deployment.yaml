@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: intellidoc-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: intellidoc-api
+  template:
+    metadata:
+      labels:
+        app: intellidoc-api
+    spec:
+      containers:
+        - name: api
+          image: intellidoc/api:latest
+          ports:
+            - containerPort: 4000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: intellidoc-api
+spec:
+  selector:
+    app: intellidoc-api
+  ports:
+    - port: 80
+      targetPort: 4000

@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: intellidoc-ai-services
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: intellidoc-ai-services
+  template:
+    metadata:
+      labels:
+        app: intellidoc-ai-services
+    spec:
+      containers:
+        - name: ai-services
+          image: intellidoc/ai-services:latest
+          ports:
+            - containerPort: 8000
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: intellidoc-ai-services
+spec:
+  selector:
+    app: intellidoc-ai-services
+  ports:
+    - port: 80
+      targetPort: 8000

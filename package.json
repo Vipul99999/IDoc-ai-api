@@ -1,0 +1,60 @@
+{
+  "name": "document-intelligence-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Production-grade AI-powered Document Intelligence Platform monorepo.",
+  "workspaces": [
+    "apps/web",
+    "apps/api",
+    "apps/worker",
+    "packages/shared-types",
+    "packages/ui-components",
+    "packages/config",
+    "packages/sdk"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @intellidoc/web",
+    "build": "npm run build --workspace @intellidoc/web",
+    "start": "npm run start --workspace @intellidoc/web",
+    "test": "node --test tests/unit/*.test.mjs tests/integration/*.test.mjs",
+    "verify": "npm run test && npm run build",
+    "security:audit": "node scripts/security-audit.mjs",
+    "benchmark:ocr": "node scripts/ocr-benchmark.mjs"
+  },
+  "dependencies": {
+    "amqplib": "^2.0.1",
+    "bcryptjs": "^3.0.3",
+    "fast-xml-parser": "^5.8.0",
+    "jose": "^6.2.3",
+    "jsonwebtoken": "^9.0.3",
+    "jszip": "^3.10.1",
+    "lucide-react": "^0.468.0",
+    "mammoth": "^1.12.0",
+    "minio": "^8.0.7",
+    "next": "^15.5.15",
+    "pdf-lib": "^1.17.1",
+    "pdf-parse": "^2.4.5",
+    "pg": "^8.20.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tesseract.js": "^7.0.0",
+    "uuid": "^10.0.0",
+    "xlsx": "^0.18.5",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/amqplib": "^0.10.8",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.20.0",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "@types/uuid": "^10.0.0",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^9.17.0",
+    "eslint-config-next": "^15.5.15",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.2"
+  }
+}

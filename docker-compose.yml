@@ -1,0 +1,121 @@
+services:
+  intellidoc-low-cost:
+    build: .
+    profiles: ["low-cost"]
+    ports:
+      - "3000:3000"
+    environment:
+      DATA_ROOT: /app/data
+      MAX_UPLOAD_MB: 50
+      RETENTION_DAYS: 14
+      OCR_MODE: cpu
+      SEARCH_MODE: local
+      OBJECT_STORAGE: filesystem
+      COST_PROFILE: single-vm-cpu-first
+    volumes:
+      - intellidoc-data:/app/data
+
+  intellidoc-ai:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      DATA_ROOT: /app/data
+      MAX_UPLOAD_MB: 25
+      RETENTION_DAYS: 30
+    volumes:
+      - intellidoc-data:/app/data
+
+  api-gateway:
+    image: node:22-alpine
+    working_dir: /app
+    command: node apps/api/src/main.mjs
+    profiles: ["future-infra"]
+    ports:
+      - "4000:4000"
+    environment:
+      DATABASE_URL: postgres://intellidoc:intellidoc@postgres:5432/intellidoc
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: intellidoc
+      MINIO_SECRET_KEY: intellidoc-secret
+    volumes:
+      - ./:/app
+
+  ai-services:
+    image: python:3.12-slim
+    working_dir: /app/apps/ai-services
+    command: sh -c "pip install -r requirements.txt && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    profiles: ["future-infra"]
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./:/app
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    profiles: ["future-infra"]
+    environment:
+      POSTGRES_DB: intellidoc
+      POSTGRES_USER: intellidoc
+      POSTGRES_PASSWORD: intellidoc
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    profiles: ["future-infra", "production"]
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+
+  minio:
+    image: minio/minio:latest
+    profiles: ["future-infra"]
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: intellidoc
+      MINIO_ROOT_PASSWORD: intellidoc-secret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+
+  opensearch:
+    image: opensearchproject/opensearch:2
+    profiles: ["future-infra", "search"]
+    environment:
+      discovery.type: single-node
+      plugins.security.disabled: "true"
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: "IntelliDoc-Dev-123!"
+      bootstrap.memory_lock: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+      - "9600:9600"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:2
+    profiles: ["search"]
+    environment:
+      OPENSEARCH_HOSTS: '["http://opensearch:9200"]'
+      DISABLE_SECURITY_DASHBOARDS_PLUGIN: "true"
+    ports:
+      - "5601:5601"
+    depends_on:
+      - opensearch
+
+volumes:
+  intellidoc-data:
+  postgres-data:
+  minio-data:
+  opensearch-data:
+  rabbitmq-data:

@@ -1,0 +1,45 @@
+{
+  "settings": {
+    "index": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0
+    },
+    "analysis": {
+      "filter": {
+        "intellidoc_synonyms": {
+          "type": "synonym",
+          "synonyms": [
+            "resume, cv, curriculum vitae",
+            "invoice, bill, receipt",
+            "contract, agreement, clause",
+            "thesis, dissertation",
+            "notes, lecture notes"
+          ]
+        }
+      },
+      "analyzer": {
+        "intellidoc_text": {
+          "tokenizer": "standard",
+          "filter": ["lowercase", "asciifolding", "intellidoc_synonyms"]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "documentId": { "type": "keyword" },
+      "tenantId": { "type": "keyword" },
+      "title": { "type": "text", "analyzer": "intellidoc_text", "fields": { "keyword": { "type": "keyword" } } },
+      "summary": { "type": "text", "analyzer": "intellidoc_text" },
+      "text": { "type": "text", "analyzer": "intellidoc_text" },
+      "tags": { "type": "keyword" },
+      "documentType": { "type": "keyword" },
+      "language": { "type": "keyword" },
+      "category": { "type": "keyword" },
+      "qualityScore": { "type": "integer" },
+      "complianceRisk": { "type": "integer" },
+      "createdAt": { "type": "date" },
+      "metadata": { "type": "object", "enabled": true }
+    }
+  }
+}
