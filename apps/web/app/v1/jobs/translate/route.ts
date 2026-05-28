@@ -1,8 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 import { z } from "zod";
-import { languageName, translateDocumentAdvanced } from "@/lib/pipeline/translate";
-import { getDocument, saveDocument } from "@/lib/storage/db";
-import { writeOutput } from "@/lib/storage/fs";
+import { canAcceptBackgroundJobs, enqueueJob } from "@/lib/queue/jobs";
+import { getDocumentForTenant } from "@/lib/storage/db";
 import { requireV1Auth, recordUsage, saveV1Job, v1Error, v1Response } from "@/lib/v1";
 
 const schema = z.object({
@@ -18,55 +17,42 @@ export async function POST(request: Request) {
   if (!principal) return response;
   const body = schema.safeParse(await request.json().catch(() => ({})));
   if (!body.success) return v1Error(request, principal.tenantId, 400, "invalid_request", "Invalid translation request.", body.error.flatten());
-  const document = await getDocument(body.data.document_id);
+  const document = await getDocumentForTenant(body.data.document_id, principal.tenantId);
   if (!document) return v1Error(request, principal.tenantId, 404, "document_not_found", "Document not found.");
+  if (!canAcceptBackgroundJobs()) return v1Error(request, principal.tenantId, 503, "queue_unavailable", "Background processing is not available.");
 
   const now = new Date().toISOString();
-  const translation = await translateDocumentAdvanced(document, {
+  const payload = {
     targetLanguage: body.data.target_language,
     sourceLanguage: body.data.source_language,
     preserveLayout: body.data.preserve_layout,
     glossary: body.data.glossary
-  });
-  const outputPath = await writeOutput(document.id, `translation-${body.data.target_language}.txt`, translation.translatedText);
-  const record = {
-    id: translation.id,
-    sourceLanguage: translation.sourceLanguage,
-    targetLanguage: body.data.target_language,
-    translatedText: translation.translatedText,
-    outputPath,
-    engine: translation.engine,
-    qualityScore: translation.qualityScore,
-    warnings: translation.warnings,
-    createdAt: now
   };
-  await saveDocument({
-    ...document,
-    status: "translated",
-    translations: [record, ...document.translations],
-    updatedAt: new Date().toISOString(),
-    auditLog: [
-      ...document.auditLog,
-      {
-        id: uuidv4(),
-        type: "translation.completed",
-        message: `Generated ${languageName(body.data.target_language)} translation through the v1 API.`,
-        createdAt: now
-      }
-    ]
+  const queueJob = await enqueueJob({
+    id: uuidv4(),
+    type: "document.translate",
+    documentId: document.id,
+    status: "queued",
+    progress: 5,
+    message: "Queued for asynchronous translation.",
+    attempts: 0,
+    maxAttempts: 3,
+    payload,
+    createdAt: now,
+    updatedAt: now
   });
   const job = await saveV1Job({
-    id: uuidv4(),
+    id: queueJob.id,
     tenantId: principal.tenantId,
     documentId: document.id,
     type: "translate",
-    status: "succeeded",
-    progress: 100,
+    status: "queued",
+    progress: 5,
     resultId: document.id,
-    payload: { target_language: body.data.target_language },
+    payload,
     createdAt: now,
-    updatedAt: new Date().toISOString()
+    updatedAt: now
   });
-  await recordUsage(principal, "translation_character", translation.translatedText.length, { target_language: body.data.target_language }, document.id);
+  await recordUsage(principal, "api_call", 1, { endpoint: "/v1/jobs/translate", method: "POST" }, document.id);
   return v1Response(request, principal.tenantId, { job }, 202);
 }

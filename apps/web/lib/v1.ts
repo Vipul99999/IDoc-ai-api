@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { verifyApiKey } from "@/lib/api-keys";
 import { DATA_ROOT } from "@/lib/config";
 import { getBearerToken, getRequestUser, LOCAL_ORG_ID, LOCAL_OWNER_ID } from "@/lib/auth/request";
+import { getPostgresPool, isPostgresEnabled } from "@/lib/storage/postgres";
 
 export type V1Principal = {
   tenantId: string;
@@ -133,7 +134,7 @@ export async function requireV1Auth(request: Request, requiredScopes: string[] =
     }
     return {
       principal: {
-        tenantId: LOCAL_ORG_ID,
+        tenantId: apiKey.organizationId,
         userId: LOCAL_OWNER_ID,
         role: "api_client" as const,
         scopes: apiKey.scopes,
@@ -171,7 +172,32 @@ export async function requireV1Auth(request: Request, requiredScopes: string[] =
   return { principal: null, response: v1Error(request, null, 401, "authentication_required", "Provide a Bearer API key, x-api-key, or JWT session token.") };
 }
 
-export async function recordUsage(principal: V1Principal, meter: UsageMeter, quantity: number, metadata: Record<string, unknown> = {}, resourceId?: string) {
+export async function recordUsage(principal: V1Principal, meter: UsageMeter, quantity: number, metadata: Record<string, unknown> = {}, resourceId?: string): Promise<UsageRecord> {
+  if (isPostgresEnabled()) {
+    const db = getPostgresPool();
+    if (db) {
+      const result = await db.query(
+        `
+        INSERT INTO usage_records (organization_id, user_id, api_key_id, document_id, meter, quantity, metadata)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id, organization_id, user_id, api_key_id, document_id, meter, quantity, metadata, created_at
+        `,
+        [principal.tenantId, principal.userId, principal.apiKeyId ?? null, resourceId ?? null, meter, quantity, metadata]
+      );
+      const row = result.rows[0];
+      return {
+        id: row.id,
+        tenantId: row.organization_id,
+        userId: row.user_id ?? undefined,
+        apiKeyId: row.api_key_id ?? undefined,
+        meter: row.meter,
+        quantity: Number(row.quantity),
+        resourceId: row.document_id ?? undefined,
+        metadata: row.metadata ?? {},
+        createdAt: row.created_at?.toISOString?.() ?? String(row.created_at)
+      } satisfies UsageRecord;
+    }
+  }
   const records = await readUsageRecords();
   const record: UsageRecord = {
     id: crypto.randomUUID(),
@@ -189,23 +215,155 @@ export async function recordUsage(principal: V1Principal, meter: UsageMeter, qua
   return record;
 }
 
-export async function readUsageRecords() {
+export async function checkQuota(principal: V1Principal, meter: UsageMeter, quantity: number, period: "minute" | "day" | "month" = "month") {
+  const windowStart = new Date();
+  if (period === "minute") windowStart.setSeconds(0, 0);
+  if (period === "day") windowStart.setHours(0, 0, 0, 0);
+  if (period === "month") {
+    windowStart.setDate(1);
+    windowStart.setHours(0, 0, 0, 0);
+  }
+
+  if (isPostgresEnabled()) {
+    const db = getPostgresPool();
+    if (db) {
+      const limitResult = await db.query(
+        "SELECT limit_value FROM quota_limits WHERE organization_id = $1 AND meter = $2 AND period = $3 LIMIT 1",
+        [principal.tenantId, meter, period]
+      );
+      const limit = limitResult.rows[0]?.limit_value == null ? null : Number(limitResult.rows[0].limit_value);
+      if (limit == null) return { ok: true, limit: null, used: 0, remaining: null };
+      const usageResult = await db.query(
+        "SELECT COALESCE(SUM(quantity), 0) AS used FROM usage_records WHERE organization_id = $1 AND meter = $2 AND created_at >= $3",
+        [principal.tenantId, meter, windowStart.toISOString()]
+      );
+      const used = Number(usageResult.rows[0]?.used ?? 0);
+      return { ok: used + quantity <= limit, limit, used, remaining: Math.max(0, limit - used) };
+    }
+  }
+
+  const records = (await readUsageRecords()).filter((record) => record.tenantId === principal.tenantId && record.meter === meter && Date.parse(record.createdAt) >= windowStart.getTime());
+  const used = records.reduce((sum, record) => sum + record.quantity, 0);
+  const localDefaults: Partial<Record<UsageMeter, number>> = { page_processed: 100, ocr_page: 100, storage_mb_month: 100 };
+  const limit = localDefaults[meter] ?? null;
+  return limit == null ? { ok: true, limit, used, remaining: null } : { ok: used + quantity <= limit, limit, used, remaining: Math.max(0, limit - used) };
+}
+
+export async function readUsageRecords(): Promise<UsageRecord[]> {
+  if (isPostgresEnabled()) {
+    const db = getPostgresPool();
+    if (db) {
+      const result = await db.query(
+        `
+        SELECT id, organization_id, user_id, api_key_id, document_id, meter, quantity, metadata, created_at
+        FROM usage_records
+        ORDER BY created_at DESC
+        LIMIT 5000
+        `
+      );
+      return result.rows.map(
+        (row) =>
+          ({
+            id: row.id,
+            tenantId: row.organization_id,
+            userId: row.user_id ?? undefined,
+            apiKeyId: row.api_key_id ?? undefined,
+            meter: row.meter,
+            quantity: Number(row.quantity),
+            resourceId: row.document_id ?? undefined,
+            metadata: row.metadata ?? {},
+            createdAt: row.created_at?.toISOString?.() ?? String(row.created_at)
+          }) satisfies UsageRecord
+      );
+    }
+  }
   return readJsonFile<UsageRecord[]>(usagePath(), []);
 }
 
-export async function saveV1Job(job: V1Job) {
+export async function saveV1Job(job: V1Job): Promise<V1Job> {
+  if (isPostgresEnabled()) {
+    const db = getPostgresPool();
+    if (db) {
+      await db.query(
+        `
+        INSERT INTO jobs (id, organization_id, document_id, type, status, progress, result_id, payload, error, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        ON CONFLICT (id) DO UPDATE SET
+          status = EXCLUDED.status,
+          progress = EXCLUDED.progress,
+          result_id = EXCLUDED.result_id,
+          payload = EXCLUDED.payload,
+          error = EXCLUDED.error,
+          updated_at = EXCLUDED.updated_at
+        `,
+        [job.id, job.tenantId, job.documentId, job.type, job.status, job.progress, job.resultId ?? null, job.payload, job.error ?? null, job.createdAt, job.updatedAt]
+      );
+      return job;
+    }
+  }
   const jobs = await readV1Jobs();
   const withoutCurrent = jobs.filter((item) => item.id !== job.id);
   await writeJsonFile(jobsPath(), [job, ...withoutCurrent].slice(0, 1000));
   return job;
 }
 
-export async function readV1Jobs() {
+export async function readV1Jobs(): Promise<V1Job[]> {
+  if (isPostgresEnabled()) {
+    const db = getPostgresPool();
+    if (db) {
+      const result = await db.query(
+        `
+        SELECT id, organization_id, document_id, type, status, progress, result_id, payload, error, created_at, updated_at
+        FROM jobs
+        ORDER BY created_at DESC
+        LIMIT 1000
+        `
+      );
+      return result.rows.map(rowToV1Job);
+    }
+  }
   return readJsonFile<V1Job[]>(jobsPath(), []);
 }
 
-export async function findV1Job(id: string) {
+export async function findV1Job(id: string): Promise<V1Job | null> {
+  if (isPostgresEnabled()) {
+    const db = getPostgresPool();
+    if (db) {
+      const result = await db.query(
+        `
+        SELECT id, organization_id, document_id, type, status, progress, result_id, payload, error, created_at, updated_at
+        FROM jobs
+        WHERE id = $1
+        `,
+        [id]
+      );
+      return result.rows[0] ? rowToV1Job(result.rows[0]) : null;
+    }
+  }
   return (await readV1Jobs()).find((job) => job.id === id) ?? null;
+}
+
+export async function updateV1Job(id: string, patch: Partial<V1Job>) {
+  const current = await findV1Job(id);
+  if (!current) return null;
+  const next = { ...current, ...patch, updatedAt: new Date().toISOString() };
+  return saveV1Job(next);
+}
+
+function rowToV1Job(row: Record<string, any>): V1Job {
+  return {
+    id: row.id,
+    tenantId: row.organization_id,
+    documentId: row.document_id,
+    type: row.type,
+    status: row.status,
+    progress: Number(row.progress ?? 0),
+    resultId: row.result_id ?? undefined,
+    error: row.error ?? undefined,
+    payload: row.payload ?? {},
+    createdAt: row.created_at?.toISOString?.() ?? String(row.created_at),
+    updatedAt: row.updated_at?.toISOString?.() ?? String(row.updated_at)
+  };
 }
 
 export function summarizeUsage(records: UsageRecord[]) {

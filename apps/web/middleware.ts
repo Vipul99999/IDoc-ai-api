@@ -23,12 +23,41 @@ function grantsForRole(role: string) {
   return ["auth:read", "documents:read", "search:read"];
 }
 
-function rateLimit(request: NextRequest) {
+async function rateLimit(request: NextRequest) {
   const windowMs = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60000);
   const max = Number(process.env.RATE_LIMIT_MAX ?? 240);
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "local";
   const key = `${ip}:${request.nextUrl.pathname.split("/").slice(0, 3).join("/")}`;
   const now = Date.now();
+  if (process.env.REDIS_REST_URL && process.env.REDIS_REST_TOKEN) {
+    const redisKey = encodeURIComponent(`ratelimit:${key}:${Math.floor(now / windowMs)}`);
+    const response = await fetch(`${process.env.REDIS_REST_URL}/incr/${redisKey}`, {
+      headers: { authorization: `Bearer ${process.env.REDIS_REST_TOKEN}` },
+      cache: "no-store"
+    }).catch(() => null);
+    const count = response?.ok ? Number(((await response.json().catch(() => ({ result: 1 }))) as { result: number }).result) : 1;
+    if (count === 1) {
+      await fetch(`${process.env.REDIS_REST_URL}/expire/${redisKey}/${Math.ceil(windowMs / 1000)}`, {
+        headers: { authorization: `Bearer ${process.env.REDIS_REST_TOKEN}` },
+        cache: "no-store"
+      }).catch(() => null);
+    }
+    if (count > max) {
+      return NextResponse.json(
+        { error: "Rate limit exceeded" },
+        {
+          status: 429,
+          headers: {
+            "retry-after": String(Math.ceil(windowMs / 1000)),
+            "x-ratelimit-limit": String(max),
+            "x-ratelimit-remaining": "0",
+            "x-ratelimit-reset": String(Math.floor((now + windowMs) / 1000))
+          }
+        }
+      );
+    }
+    return null;
+  }
   const current = rateBuckets.get(key);
   if (!current || current.resetAt <= now) {
     rateBuckets.set(key, { count: 1, resetAt: now + windowMs });
@@ -43,16 +72,23 @@ function rateLimit(request: NextRequest) {
 
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
-  if (!pathname.startsWith("/api/")) return NextResponse.next();
+  if (!pathname.startsWith("/api/") && !pathname.startsWith("/v1/")) return NextResponse.next();
+  if (pathname.startsWith("/v1/")) {
+    const limited = await rateLimit(request);
+    if (limited) return limited;
+    return NextResponse.next();
+  }
   const required = permissionForRequest(pathname, request.method);
   if (!required) return NextResponse.next();
 
-  const limited = rateLimit(request);
+  const limited = await rateLimit(request);
   if (limited) return limited;
 
   if (required === "internal:worker") {
-    const expected = process.env.INTERNAL_WORKER_SECRET ?? "local-worker-secret";
+    const expected = process.env.INTERNAL_WORKER_SECRET;
+    if (!expected && process.env.NODE_ENV === "production") return NextResponse.json({ error: "Worker secret is not configured" }, { status: 503 });
     if (request.headers.get("x-worker-secret") === expected) return NextResponse.next();
+    if (!expected && request.headers.get("x-worker-secret") === "local-worker-secret") return NextResponse.next();
     return NextResponse.json({ error: "Forbidden internal route" }, { status: 403 });
   }
 
@@ -77,10 +113,11 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  if (process.env.NODE_ENV !== "production" || process.env.AUTH_OPTIONAL === "true") return NextResponse.next();
+  if (process.env.NODE_ENV !== "production") return NextResponse.next();
+  if (process.env.AUTH_OPTIONAL === "true" && process.env.ALLOW_PRODUCTION_AUTH_OPTIONAL === "true") return NextResponse.next();
   return NextResponse.json({ error: "Authentication required" }, { status: 401 });
 }
 
 export const config = {
-  matcher: ["/api/:path*"]
+  matcher: ["/api/:path*", "/v1/:path*"]
 };

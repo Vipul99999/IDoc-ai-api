@@ -75,6 +75,35 @@ export class IntelliDocClient {
     return this.request("/v1/usage");
   }
 
+  async getSubscription() {
+    return this.request("/v1/billing/subscription");
+  }
+
+  async listInvoices() {
+    return this.request("/v1/billing/invoices");
+  }
+
+  async createWebhook(url: string, events = ["job.completed", "job.failed"]) {
+    return this.request("/v1/webhooks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, events })
+    });
+  }
+
+  async waitForJob(id: string, options: { timeoutMs?: number; intervalMs?: number } = {}) {
+    const timeoutMs = options.timeoutMs ?? 120000;
+    const intervalMs = options.intervalMs ?? 2000;
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      const envelope = await this.getJob(id);
+      const status = envelope.data?.job?.status;
+      if (status === "succeeded" || status === "failed") return envelope;
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+    throw new Error(`Timed out waiting for job ${id}`);
+  }
+
   private async request(path: string, init?: RequestInit) {
     const headers = new Headers(init?.headers);
     if (this.apiKey) headers.set("Authorization", `Bearer ${this.apiKey}`);

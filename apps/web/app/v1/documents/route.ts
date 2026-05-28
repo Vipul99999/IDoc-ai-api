@@ -5,11 +5,11 @@ import { detectedCategory } from "@/lib/format-support";
 import { checksum, retentionDate } from "@/lib/pipeline/analyze";
 import { canAcceptBackgroundJobs, enqueueJob } from "@/lib/queue/jobs";
 import { scanForMalware } from "@/lib/security";
-import { saveDocument, listDocuments } from "@/lib/storage/db";
+import { saveDocument, listDocumentsForTenant } from "@/lib/storage/db";
 import { ensureStorage } from "@/lib/storage/fs";
 import { putOriginalObject } from "@/lib/storage/object-store";
 import { DocumentRecord } from "@/lib/types";
-import { requireV1Auth, recordUsage, v1Error, v1Response } from "@/lib/v1";
+import { checkQuota, requireV1Auth, recordUsage, v1Error, v1Response } from "@/lib/v1";
 
 function sanitizeFilename(filename: string) {
   return filename.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "document";
@@ -21,7 +21,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const page = Math.max(1, Number(searchParams.get("page") ?? 1));
   const limit = Math.min(100, Math.max(1, Number(searchParams.get("limit") ?? 20)));
-  const documents = await listDocuments();
+  const documents = await listDocumentsForTenant(principal.tenantId);
   const start = (page - 1) * limit;
   await recordUsage(principal, "api_call", 1, { endpoint: "/v1/documents", method: "GET" });
   return v1Response(
@@ -45,6 +45,9 @@ export async function POST(request: Request) {
   const urgency = formData.get("urgency") === "express" ? "express" : "normal";
   if (!(file instanceof File)) return v1Error(request, principal.tenantId, 400, "missing_file", "Attach a document file using the file field.");
   if (file.size > MAX_UPLOAD_MB * 1024 * 1024) return v1Error(request, principal.tenantId, 413, "upload_too_large", `Upload limit is ${MAX_UPLOAD_MB} MB.`);
+  const storageMb = Number((file.size / 1024 / 1024).toFixed(4));
+  const storageQuota = await checkQuota(principal, "storage_mb_month", storageMb);
+  if (!storageQuota.ok) return v1Error(request, principal.tenantId, 429, "quota_exceeded", "Storage quota exceeded.", storageQuota);
 
   const originalName = sanitizeFilename(file.name);
   const extension = path.extname(originalName).toLowerCase();
@@ -61,6 +64,7 @@ export async function POST(request: Request) {
   const fileChecksum = checksum(buffer);
   const document: DocumentRecord = {
     id,
+    organizationId: principal.tenantId,
     userId: principal.userId,
     filename: `${id}${extension}`,
     originalName,
@@ -106,6 +110,6 @@ export async function POST(request: Request) {
     updatedAt: now
   });
   await recordUsage(principal, "document_upload", 1, { filename: originalName, bytes: file.size }, id);
-  await recordUsage(principal, "storage_mb_month", Number((file.size / 1024 / 1024).toFixed(4)), {}, id);
+  await recordUsage(principal, "storage_mb_month", storageMb, {}, id);
   return v1Response(request, principal.tenantId, { document, job }, 202);
 }

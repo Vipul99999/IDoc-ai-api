@@ -5,8 +5,10 @@ import { outputPath, documentPath, ensureStorage, safeRemoveDir, safeUnlink } fr
 import { deleteOriginalObject } from "@/lib/storage/object-store";
 import {
   deleteDocumentPostgres,
+  getDocumentForTenantPostgres,
   getDocumentPostgres,
   isPostgresEnabled,
+  listDocumentsForTenantPostgres,
   listDocumentsPostgres,
   saveDocumentPostgres
 } from "@/lib/storage/postgres";
@@ -89,6 +91,25 @@ export async function listDocuments() {
       .map(async (file) => normalizeDocument(JSON.parse(await fs.readFile(documentPath(file.replace(".json", "")), "utf8")) as DocumentRecord))
   );
   return records.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function getDocumentForTenant(id: string, organizationId: string) {
+  if (isPostgresEnabled()) {
+    const document = await getDocumentForTenantPostgres(id, organizationId);
+    return document ? normalizeDocument(document) : null;
+  }
+  const document = await getDocument(id);
+  if (!document) return null;
+  return document.organizationId === organizationId || !document.organizationId ? document : null;
+}
+
+export async function listDocumentsForTenant(organizationId: string) {
+  if (isPostgresEnabled()) {
+    const documents = await listDocumentsForTenantPostgres(organizationId);
+    if (documents) return documents.map(normalizeDocument);
+  }
+  const documents = await listDocuments();
+  return documents.filter((document) => document.organizationId === organizationId || !document.organizationId);
 }
 
 export async function updateDocument(id: string, updater: (document: DocumentRecord) => DocumentRecord | Promise<DocumentRecord>) {

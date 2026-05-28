@@ -11,7 +11,7 @@ export async function GET(request: Request) {
   const { principal, response } = await requireV1Auth(request, ["api_keys:read"]);
   if (!principal) return response;
   await recordUsage(principal, "api_call", 1, { endpoint: "/v1/api-keys", method: "GET" });
-  return v1Response(request, principal.tenantId, { api_keys: await listApiKeys() });
+  return v1Response(request, principal.tenantId, { api_keys: await listApiKeys(principal.tenantId) });
 }
 
 export async function POST(request: Request) {
@@ -19,7 +19,7 @@ export async function POST(request: Request) {
   if (!principal) return response;
   const body = createSchema.safeParse(await request.json().catch(() => ({})));
   if (!body.success) return v1Error(request, principal.tenantId, 400, "invalid_request", "name and scopes are required.", body.error.flatten());
-  const apiKey = await createApiKey(body.data.name, body.data.scopes);
+  const apiKey = await createApiKey(body.data.name, body.data.scopes, principal.tenantId);
   await recordUsage(principal, "api_call", 1, { endpoint: "/v1/api-keys", method: "POST" });
   return v1Response(request, principal.tenantId, { api_key: apiKey }, 201);
 }
@@ -29,7 +29,7 @@ export async function DELETE(request: Request) {
   if (!principal) return response;
   const id = new URL(request.url).searchParams.get("id");
   if (!id) return v1Error(request, principal.tenantId, 400, "invalid_request", "id is required.");
-  await revokeApiKey(id);
+  await revokeApiKey(id, principal.tenantId);
   await recordUsage(principal, "api_call", 1, { endpoint: "/v1/api-keys", method: "DELETE" });
   return v1Response(request, principal.tenantId, { revoked: true });
 }

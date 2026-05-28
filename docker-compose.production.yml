@@ -6,17 +6,20 @@ services:
     environment:
       NODE_ENV: production
       DATA_ROOT: /app/data
-      DATABASE_URL: postgres://intellidoc:intellidoc@postgres:5432/intellidoc
+      DATABASE_URL: postgres://intellidoc:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/intellidoc
       OBJECT_STORAGE: minio
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
-      MINIO_ACCESS_KEY: intellidoc
-      MINIO_SECRET_KEY: intellidoc-secret
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?set MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?set MINIO_SECRET_KEY}
       MINIO_BUCKET: documents
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      RABBITMQ_URL: amqp://intellidoc:${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD}@rabbitmq:5672
+      REDIS_REST_URL: ${REDIS_REST_URL:-}
+      REDIS_REST_TOKEN: ${REDIS_REST_TOKEN:-}
       OPENSEARCH_URL: http://opensearch:9200
       OPENSEARCH_INDEX: intellidoc-documents
-      JWT_SECRET: change-this-production-secret
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      INTERNAL_WORKER_SECRET: ${INTERNAL_WORKER_SECRET:?set INTERNAL_WORKER_SECRET}
       MAX_UPLOAD_MB: 100
       RETENTION_DAYS: 30
     depends_on:
@@ -27,12 +30,24 @@ services:
     volumes:
       - intellidoc-data:/app/data
 
+  worker:
+    build: .
+    command: node apps/worker/src/worker.mjs
+    environment:
+      NODE_ENV: production
+      WEB_INTERNAL_URL: http://intellidoc-ai:3000
+      RABBITMQ_URL: amqp://intellidoc:${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD}@rabbitmq:5672
+      INTERNAL_WORKER_SECRET: ${INTERNAL_WORKER_SECRET:?set INTERNAL_WORKER_SECRET}
+    depends_on:
+      - intellidoc-ai
+      - rabbitmq
+
   postgres:
     image: pgvector/pgvector:pg16
     environment:
       POSTGRES_DB: intellidoc
       POSTGRES_USER: intellidoc
-      POSTGRES_PASSWORD: intellidoc
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
     ports:
       - "5432:5432"
     volumes:
@@ -43,8 +58,8 @@ services:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: intellidoc
-      MINIO_ROOT_PASSWORD: intellidoc-secret
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:?set MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:?set MINIO_SECRET_KEY}
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -53,6 +68,9 @@ services:
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: intellidoc
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD}
     ports:
       - "5672:5672"
       - "15672:15672"
@@ -64,7 +82,7 @@ services:
     environment:
       discovery.type: single-node
       plugins.security.disabled: "true"
-      OPENSEARCH_INITIAL_ADMIN_PASSWORD: "IntelliDoc-Prod-123!"
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_INITIAL_ADMIN_PASSWORD:?set OPENSEARCH_INITIAL_ADMIN_PASSWORD}
       OPENSEARCH_JAVA_OPTS: "-Xms1g -Xmx1g"
     ports:
       - "9200:9200"

@@ -63,8 +63,40 @@ export async function runSecurityAudit() {
       severity: "critical",
       title: "All API routes must pass through RBAC middleware",
       status: "pass",
-      evidence: "Next.js middleware matcher protects /api/:path* with route policies.",
-      remediation: "Add new routes to lib/auth/policy.ts during code review."
+      evidence: "Next.js middleware matcher protects /api/:path* with route policies and /v1/:path* with distributed rate limiting.",
+      remediation: "Add new routes to lib/auth/policy.ts or explicit /v1 route guards during code review."
+    },
+    {
+      id: "redis-rate-limit",
+      severity: "high",
+      title: "Production rate limits should use Redis or another shared limiter",
+      status: process.env.REDIS_REST_URL || !production ? "pass" : "fail",
+      evidence: process.env.REDIS_REST_URL ? "Redis REST limiter configured" : "Using process-local rate buckets",
+      remediation: "Set REDIS_REST_URL and REDIS_REST_TOKEN for horizontally scaled production deployments."
+    },
+    {
+      id: "payment-provider",
+      severity: "high",
+      title: "Production billing must use a verified payment provider",
+      status: process.env.STRIPE_SECRET_KEY || (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) || !production ? "pass" : "fail",
+      evidence: process.env.STRIPE_SECRET_KEY ? "Stripe configured" : process.env.RAZORPAY_KEY_ID ? "Razorpay configured" : "No live payment provider configured",
+      remediation: "Configure Stripe or Razorpay credentials and webhook secrets before accepting paid plans."
+    },
+    {
+      id: "webhook-secret-encryption",
+      severity: "high",
+      title: "Webhook signing secrets must be encrypted at rest",
+      status: process.env.WEBHOOK_SECRET_ENCRYPTION_KEY || !production ? "pass" : "fail",
+      evidence: process.env.WEBHOOK_SECRET_ENCRYPTION_KEY ? "Webhook secret encryption key configured" : "Local encryption fallback active",
+      remediation: "Set WEBHOOK_SECRET_ENCRYPTION_KEY from the production secret manager."
+    },
+    {
+      id: "production-auth-optional",
+      severity: "critical",
+      title: "Production auth bypass must not be enabled accidentally",
+      status: production && process.env.AUTH_OPTIONAL === "true" && process.env.ALLOW_PRODUCTION_AUTH_OPTIONAL !== "true" ? "fail" : "pass",
+      evidence: process.env.AUTH_OPTIONAL === "true" ? "AUTH_OPTIONAL is set" : "AUTH_OPTIONAL is not set",
+      remediation: "Never set AUTH_OPTIONAL in production except during an explicitly approved emergency with ALLOW_PRODUCTION_AUTH_OPTIONAL=true."
     },
     {
       id: "security-docs",

@@ -131,6 +131,7 @@ export type ReviewTask = {
 
 export type DocumentRecord = {
   id: string;
+  organizationId?: string;
   userId: string;
   filename: string;
   originalName: string;

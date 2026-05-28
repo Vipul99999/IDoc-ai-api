@@ -19,7 +19,8 @@
     "test": "node --test tests/unit/*.test.mjs tests/integration/*.test.mjs",
     "verify": "npm run test && npm run build",
     "security:audit": "node scripts/security-audit.mjs",
-    "benchmark:ocr": "node scripts/ocr-benchmark.mjs"
+    "benchmark:ocr": "node scripts/ocr-benchmark.mjs",
+    "load:test": "node scripts/load-test.mjs"
   },
   "dependencies": {
     "amqplib": "^2.0.1",

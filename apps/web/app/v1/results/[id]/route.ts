@@ -1,4 +1,4 @@
-import { getDocument } from "@/lib/storage/db";
+import { getDocumentForTenant } from "@/lib/storage/db";
 import { findV1Job, requireV1Auth, recordUsage, v1Error, v1Response } from "@/lib/v1";
 
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -6,7 +6,8 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   if (!principal) return response;
   const { id } = await context.params;
   const job = await findV1Job(id);
-  const document = await getDocument(job?.resultId ?? id);
+  if (job && job.tenantId !== principal.tenantId) return v1Error(request, principal.tenantId, 404, "result_not_found", "Result not found.");
+  const document = await getDocumentForTenant(job?.resultId ?? id, principal.tenantId);
   if (!document) return v1Error(request, principal.tenantId, 404, "result_not_found", "Result not found.");
   await recordUsage(principal, "api_call", 1, { endpoint: "/v1/results/{id}", method: "GET" }, document.id);
   return v1Response(request, principal.tenantId, {

@@ -11,6 +11,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     ? { ...v1Job, ...(localJob ? { status: localJob.status, progress: localJob.progress, message: localJob.message } : {}) }
     : localJob;
   if (!job) return v1Error(request, principal.tenantId, 404, "job_not_found", "Job not found.");
+  if ("tenantId" in job && job.tenantId !== principal.tenantId) return v1Error(request, principal.tenantId, 404, "job_not_found", "Job not found.");
   await recordUsage(principal, "api_call", 1, { endpoint: "/v1/jobs/{id}", method: "GET" }, id);
   return v1Response(request, principal.tenantId, { job });
 }

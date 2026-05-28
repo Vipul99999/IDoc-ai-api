@@ -15,6 +15,9 @@ const queues = [
 console.log("IntelliDoc worker booted", { workerId: randomUUID(), queues });
 
 async function start() {
+  if (process.env.NODE_ENV === "production" && !process.env.INTERNAL_WORKER_SECRET) {
+    throw new Error("INTERNAL_WORKER_SECRET is required in production.");
+  }
   if (!process.env.RABBITMQ_URL) {
     console.log("RABBITMQ_URL not set; background processing is disabled until RabbitMQ is configured.");
     return;
@@ -38,12 +41,19 @@ async function start() {
           "content-type": "application/json",
           "x-worker-secret": process.env.INTERNAL_WORKER_SECRET ?? "local-worker-secret"
         },
-        body: JSON.stringify({ documentId: job.documentId, jobId: job.id })
+        body: JSON.stringify({ documentId: job.documentId, jobId: job.id, jobType: job.type, payload: job.payload ?? {} })
       });
       if (!response.ok) {
         const text = await response.text();
         throw new Error(`Pipeline failed with ${response.status}: ${text}`);
       }
+      await fetch(`${baseUrl}/api/internal/webhooks/dispatch`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-worker-secret": process.env.INTERNAL_WORKER_SECRET ?? "local-worker-secret"
+        }
+      }).catch((error) => console.warn("Webhook dispatch skipped", error));
       channel.ack(message);
     } catch (error) {
       console.error("Job failed", error);

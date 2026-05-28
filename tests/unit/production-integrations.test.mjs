@@ -52,6 +52,8 @@ test("advanced production hardening surfaces are implemented", async () => {
   const worker = await readFile("apps/worker/src/worker.mjs", "utf8");
   assert.match(worker, /document-jobs-dead/);
   assert.match(worker, /maxAttempts/);
+  assert.match(worker, /jobType/);
+  assert.match(worker, /INTERNAL_WORKER_SECRET is required in production/);
 
   const policy = await readFile("apps/web/lib/auth/policy.ts", "utf8");
   assert.match(policy, /permissionForRequest/);
@@ -60,6 +62,27 @@ test("advanced production hardening surfaces are implemented", async () => {
   const paymentWebhook = await readFile("apps/web/app/api/payments/webhook/route.ts", "utf8");
   assert.match(paymentWebhook, /timingSafeEqual/);
   assert.match(paymentWebhook, /STRIPE_WEBHOOK_SECRET/);
+  assert.match(paymentWebhook, /INSERT INTO payments/);
+
+  const v1 = await readFile("apps/web/lib/v1.ts", "utf8");
+  assert.match(v1, /INSERT INTO usage_records/);
+  assert.match(v1, /INSERT INTO jobs/);
+  assert.match(v1, /quota_limits/);
+
+  const apiKeys = await readFile("apps/web/lib/api-keys.ts", "utf8");
+  assert.match(apiKeys, /INSERT INTO api_keys/);
+  assert.match(apiKeys, /organizationId/);
+
+  const webhooks = await readFile("apps/web/lib/webhooks.ts", "utf8");
+  assert.match(webhooks, /validateWebhookTarget/);
+  assert.match(webhooks, /aes-256-gcm/);
+  assert.match(webhooks, /dispatchPendingWebhookEvents/);
+
+  const migration = await readFile("database/migrations/004_production_hardening_schema.sql", "utf8");
+  assert.match(migration, /quota_limits/);
+  assert.match(migration, /webhook_events/);
+  assert.match(migration, /subscription_id UUID REFERENCES webhook_subscriptions/);
+  assert.match(migration, /payments_provider_payment_unique_idx/);
 });
 
 test("google oauth and cost-aware processing are wired", async () => {

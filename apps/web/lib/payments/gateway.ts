@@ -51,6 +51,10 @@ export async function createCheckoutSession(input: CheckoutInput) {
     return { provider: "razorpay", id: order.id, url: null };
   }
 
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Configure STRIPE_SECRET_KEY or RAZORPAY_KEY_ID/RAZORPAY_KEY_SECRET before accepting production payments.");
+  }
+
   return {
     provider: "local-sandbox",
     id: `local_${Date.now()}`,
